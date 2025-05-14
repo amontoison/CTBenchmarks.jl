@@ -3,11 +3,16 @@
 using ExaModels
 using NLPModelsIpopt
 using MadNLP
+using MadNLPHSL
 using MadNLPGPU
+using MadNLP
 using CUDA
 using KernelAbstractions
 using BenchmarkTools
 using Interpolations
+using Profile
+using PProf
+using MadNCL
 
 # Parameters
 
@@ -49,12 +54,13 @@ t = tfs * 0:N0
 xs = linear_interpolation(t, [xs[:, j] for j ∈ 1:N0+1], extrapolation_bc=Line())
 us = linear_interpolation(t, [us[:, j] for j ∈ 1:N0+1], extrapolation_bc=Line())
 
-N = 5000
+N = 50000
 t = tfs * 0:N
 xs = xs.(t); xs = stack(xs[:])
 us = us.(t); us = stack(us[:])
 
-print_level = MadNLP.WARN
+print_level = MadNLP.ERROR
+# print_level = MadNLP.WARN
 tol = 1e-7 # 1e-5
  
 # Model
@@ -140,21 +146,34 @@ exa2 = _docp(N; tfs=tfs, xs=xs, us=us, backend=CUDABackend())
 println("\n******************** exa0:")
 output0 = madnlp(exa0; tol=tol)
 #println("\n******************** exa1:")
-#output1 = madnlp(exa1; tol=tol)
-println("\n******************** exa2:")
+output1 = madnlp(exa1; tol=tol)
+# println("\n******************** exa2:")
 output2 = madnlp(exa2; tol=tol)
 
 println()
-println("exa0: ", output0)
-#println("exa1: ", output1)
+# println("exa0: ", output0)
+println("exa1: ", output1)
 println("exa2: ", output2)
 
 println()
 println("N = ", N)
-print("exa0:")
-@btime madnlp(exa0; print_level=print_level, tol=tol)
-#print("exa1:")
-#@btime madnlp(exa1; print_level=print_level, tol=tol)
-print("exa2:")
+# print("MadNLP -- exa0:")
+# @btime madnlp(exa0; print_level=print_level, tol=tol)
+print("MadNLP -- CPU -- exa1:")
+@btime madnlp(exa1; print_level=print_level, tol=tol)
+print("MadNLP -- GPU -- exa2:")
 @btime madnlp(exa2; print_level=print_level, tol=tol)
-nothing
+print("MadNCL -- CPU -- MA27 -- K2r -- exa1:")
+@btime MadNCL.solve!(MadNCL.NCLSolver(exa1, linear_solver=MadNLPHSL.Ma27Solver, kkt_system=MadNCL.K2rAuglagKKTSystem, print_level=print_level))
+print("MadNCL -- CPU -- MA27 -- K1s -- exa1:")
+@btime MadNCL.solve!(MadNCL.NCLSolver(exa1, linear_solver=MadNLPHSL.Ma27Solver, kkt_system=MadNCL.K1sAuglagKKTSystem, print_level=print_level))
+print("MadNCL -- GPU -- cuDSS -- K2r -- exa2:")
+@btime MadNCL.solve!(MadNCL.NCLSolver(exa2, linear_solver=MadNLPGPU.CUDSSSolver, kkt_system=MadNCL.K2rAuglagKKTSystem, print_level=print_level))
+print("MadNCL -- GPU -- cuDSS -- K1s -- exa2:")
+@btime MadNCL.solve!(MadNCL.NCLSolver(exa2, linear_solver=MadNLPGPU.CUDSSSolver, kkt_system=MadNCL.K1sAuglagKKTSystem, print_level=print_level))
+
+# Profile.Allocs.clear()
+# Profile.Allocs.@profile madnlp(exa0; tol=tol)
+
+# Export pprof allocation profile and open interactive profiling web interface.
+# PProf.Allocs.pprof()
